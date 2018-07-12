@@ -4,7 +4,7 @@
 
 #tool xunit.runner.console
 #tool nuget:?package=OctopusTools
-
+#tool nuget:?package=GitVersion
 
 var target = Argument("target", "Default");
 var configuration = Argument("configuration", "Release");
@@ -42,7 +42,22 @@ Task("Version")
     .Does(() =>
 {
     packageVersion = ReadVersionNumberFromProject(Context);
+
+    var version = GitVersion(new GitVersionSettings
+    {
+        RepositoryPath = "."
+    });
+    Information($"Gitversion found {version.SemVer}");
     Information($"Read package version {packageVersion}");
+
+    if(!BuildSystem.IsLocalBuild)
+    {
+        GitVersion(new GitVersionSettings
+        {
+            OutputType = GitVersionOutput.BuildServer
+        });
+    }
+    
 });
 
 Task("Remove-Packages")
@@ -71,6 +86,7 @@ Task("Package-NuGet")
 
 Task("Deploy-OctopusDeploy")
     .IsDependentOn("Package-Nuget")
+    .IsDependentOn("Publish-Artifacts")
     .Does(() => 
 {
     OctoPush(
@@ -94,5 +110,21 @@ Task("Deploy-OctopusDeploy")
             WaitForDeployment = true
         });
 });
+
+Task("Publish-Artifacts")
+    .IsDependentOn("Package-Nuget")
+    .WithCriteria(() => BuildSystem.IsRunningOnTeamCity)
+    .Does(() =>
+{
+    BuildSystem.TeamCity.PublishArtifacts(packageOutputPath);
+});
+
+// Task("Test-DotCover")
+//     .IsDependentOn("Build")
+//     .WithCriteria(() => BuildSystem.IsRunningOnTeamCity)
+//     .Does(() =>
+// {
+//     DotCover()
+// });
 
 RunTarget(target);
